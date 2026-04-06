@@ -84,6 +84,7 @@ defaults = {
     "user_age":25,"conditions":[],"gender":"Male",
     "nlp_detected":[],"sos_triggered":False,
     "api_key":"","custom_condition":"",
+    # Login system
     "logged_in":False,"role":None,
     "patient_profile":{},"doctor_profile":{},
 }
@@ -131,7 +132,6 @@ h1,h2,h3{color:#e0e6f0!important}
 .role-icon{font-size:48px;margin-bottom:1rem}
 .doctor-badge{background:#1a3a5a;border:1px solid #4C9BE8;border-radius:8px;padding:4px 10px;font-size:11px;color:#4C9BE8;display:inline-block;margin-bottom:8px}
 .patient-badge{background:#1a3a1a;border:1px solid #2ecc71;border-radius:8px;padding:4px 10px;font-size:11px;color:#2ecc71;display:inline-block;margin-bottom:8px}
-.health-plan-box{background:#0d1e38;border:1px solid #1e3a5a;border-radius:12px;padding:1.2rem;color:#c0cce0;line-height:1.6;font-size:14px;}
 </style>
 """, unsafe_allow_html=True)
 
@@ -272,42 +272,6 @@ Health Log:\n{logs_str}
 Write in professional medical language, third person, under 200 words."""
     return call_groq(prompt)
 
-# ─────────────────────────────────────────────
-# GENERATE HEALTH PLAN (fixed location — before it is called in Dashboard)
-# ─────────────────────────────────────────────
-def generate_health_plan(data, result):
-    gender = st.session_state.get("gender", "Not specified")
-    conditions = ', '.join(st.session_state.conditions) or 'None'
-    symptoms = list(set(s for e in data for s in e.get('symptoms', [])))
-    prompt = f"""You are an intelligent health assistant.
-
-Patient condition:
-- Name: {st.session_state.user_name}, Age: {st.session_state.user_age}, Gender: {gender}
-- Existing conditions: {conditions}
-- Risk Score: {result['risk_score']}/100
-- Diagnosis: {result['diagnosis']}
-- Current Symptoms: {symptoms}
-- Sleep trend (last {len(data)} days): {[e['sleep'] for e in data]}
-- Mood trend (last {len(data)} days): {[e['mood'] for e in data]}
-
-Based on the above patient data, create a PERSONALISED and COMPLETE simple health plan with:
-
-1. 🥗 Diet Tips (2-3 specific points based on symptoms)
-2. 🏃 Exercise Tips (2-3 points suitable for current condition)
-3. 😴 Sleep Tips (1-2 points to improve sleep)
-4. 🧠 Mental Health Tips (1-2 points based on mood trend)
-5. ⚠️ When to See a Doctor (1-2 warning signs to watch for)
-
-Keep it:
-- Very simple and practical
-- Short bullet points
-- Easy to follow in daily life
-- Personalised to this patient's data
-- No medical diagnosis, only wellness advice
-
-Format clearly with headings and bullet points."""
-    return call_groq(prompt)
-
 def draw_radar(data):
     logs=data[-7:]; n=len(logs)
     sleep_score=min(100,round(sum(e["sleep"] for e in logs)/n/8*100))
@@ -424,6 +388,7 @@ if not st.session_state.logged_in:
     </div>
     """, unsafe_allow_html=True)
 
+    # Role selection
     if "login_role" not in st.session_state:
         st.session_state.login_role = None
 
@@ -457,6 +422,7 @@ if not st.session_state.logged_in:
                 st.session_state.login_role = "doctor"
                 st.rerun()
 
+    # ── PATIENT LOGIN ──
     elif st.session_state.login_role == "patient":
         st.markdown("<h3 style='text-align:center;color:#e0e6f0;margin-bottom:1.5rem'>🧑‍⚕️ Patient Registration</h3>", unsafe_allow_html=True)
 
@@ -516,6 +482,7 @@ if not st.session_state.logged_in:
             st.session_state.login_role = None
             st.rerun()
 
+    # ── DOCTOR LOGIN ──
     elif st.session_state.login_role == "doctor":
         st.markdown("<h3 style='text-align:center;color:#e0e6f0;margin-bottom:1.5rem'>👨‍⚕️ Doctor Registration</h3>", unsafe_allow_html=True)
 
@@ -590,6 +557,7 @@ if not st.session_state.logged_in:
 st.sidebar.markdown("## MediScan AI")
 st.sidebar.markdown("---")
 
+# Profile badge
 role = st.session_state.role
 profile = st.session_state.doctor_profile if role=="doctor" else st.session_state.patient_profile
 if role == "doctor":
@@ -635,6 +603,7 @@ if st.sidebar.button("🚪 Logout"):
         del st.session_state[k]
     st.rerun()
 
+# Navigation based on role
 if role == "doctor":
     page=st.sidebar.radio("Navigate",["Doctor Panel","Doctor Tools","Risk Heatmap"])
 else:
@@ -692,62 +661,92 @@ elif page=="Dashboard":
     st.title("📊 Health Dashboard"); st.markdown("---")
     data=st.session_state.health_logs
     if not data: st.warning("No data — log entries or load Demo Data from sidebar."); st.stop()
-
     result=analyze_health(data); df=pd.DataFrame(data)
     streak=compute_streak(data); recovery=compute_recovery(data); corrs=detect_correlations(data)
-
-    if streak>=3:
-        st.markdown(f'<div class="streak-box">🔥 {streak}-day check-in streak!</div><br>',unsafe_allow_html=True)
-
+    if streak>=3: st.markdown(f'<div class="streak-box">🔥 {streak}-day check-in streak!</div><br>',unsafe_allow_html=True)
     c1,c2,c3,c4,c5=st.columns(5)
-    c1.metric("Risk Score",f"{result['risk_score']}/100")
-    c2.metric("Health Score",f"{result['health_score']}/100")
-    c3.metric("Entries",len(data))
-    c4.metric("Avg Sleep",f"{round(sum(e['sleep'] for e in data)/len(data),1)}h")
+    c1.metric("Risk Score",f"{result['risk_score']}/100"); c2.metric("Health Score",f"{result['health_score']}/100")
+    c3.metric("Entries",len(data)); c4.metric("Avg Sleep",f"{round(sum(e['sleep'] for e in data)/len(data),1)}h")
     c5.metric("Streak",f"{streak} days")
-
     st.markdown("---")
-
     col_d,col_f=st.columns(2)
     with col_d:
-        st.subheader("Diagnosis")
-        color=result.get("diag_color","#aaa")
+        st.subheader("Diagnosis"); color=result.get("diag_color","#aaa")
         st.markdown(f'<div style="background:{color}22;border-left:4px solid {color};padding:10px 14px;border-radius:4px;color:#e0e6f0;">{result["diagnosis"]}</div>',unsafe_allow_html=True)
-
     with col_f:
-        st.subheader("Tomorrow's Forecast")
-        st.warning(result["tomorrow"])
-
+        st.subheader("Tomorrow's Forecast"); st.warning(result["tomorrow"])
     st.caption(f"Baseline: Sleep {result['baseline']['avg_sleep']}h | Mood {result['baseline']['avg_mood']}/5")
-
+    st.markdown("---"); st.subheader("Wellness Overview")
+    ra,rb=st.columns(2)
+    with ra:
+        fig_rad,scores_dict=draw_radar(data); st.pyplot(fig_rad); plt.close(fig_rad)
+        for k,v in scores_dict.items():
+            bar_color="#2ecc71" if v>=70 else "#f39c12" if v>=40 else "#e74c3c"
+            st.markdown(f'<div style="display:flex;align-items:center;gap:8px;margin:3px 0;"><span style="width:100px;font-size:12px;color:#7a92b5;">{k}</span><div style="flex:1;background:#1e2d4a;border-radius:4px;height:8px;"><div style="width:{v}%;background:{bar_color};height:8px;border-radius:4px;"></div></div><span style="font-size:12px;color:#e0e6f0;margin-left:6px;">{v}%</span></div>',unsafe_allow_html=True)
+    with rb:
+        if recovery:
+            fig_rec=draw_recovery(recovery); st.pyplot(fig_rec); plt.close(fig_rec)
+            tc="#2ecc71" if recovery["trend"]=="improving" else "#e74c3c" if recovery["trend"]=="declining" else "#f39c12"
+            st.markdown(f'<div style="text-align:center;color:{tc};font-weight:600;margin-top:8px;">Recovery: {recovery["trend"].upper()} ({recovery["pct"]}% change)</div>',unsafe_allow_html=True)
+        else: st.info("Log 2+ entries to see recovery tracker.")
+    st.markdown("---"); st.subheader("Why am I at risk?")
+    if result["risk_factors"]:
+        fig_b=draw_risk_breakdown(result["risk_factors"])
+        if fig_b: st.pyplot(fig_b); plt.close(fig_b)
+        with st.expander("Detailed explanation"):
+            for name,pts,reason in result["risk_factors"]:
+                icon="🔴" if pts>=20 else "🟡" if pts>=10 else "🔵"
+                st.markdown(f"{icon} **{name}** (+{pts} pts) — {reason}")
     st.markdown("---")
-
     if result["insights"]:
         st.subheader("AI Insights")
-        for i in result["insights"]:
-            st.write(f"• {i}")
-
-    # ── SMART HEALTH PLAN ──
+        for i in result["insights"]: st.write(f"• {i}")
+    if corrs:
+        st.markdown("---"); st.subheader("Pattern Correlations")
+        for c in corrs: st.info(f"🔗 {c}")
     st.markdown("---")
-    st.subheader("🧠 Smart Health Plan")
-    st.markdown("*Personalised wellness tips based on your health data*")
-
-    if st.session_state.api_key or os.environ.get("GROQ_API_KEY",""):
-        if st.button("🔄 Generate My Health Plan", key="gen_plan_btn"):
-            with st.spinner("Generating your personalised health plan..."):
-                try:
-                    plan = generate_health_plan(data, result)
-                    st.session_state["health_plan_cache"] = plan
-                except Exception as e:
-                    st.error(f"Error generating plan: {e}")
-
-        if "health_plan_cache" in st.session_state and st.session_state["health_plan_cache"]:
-            formatted_plan = st.session_state["health_plan_cache"].replace("\n", "<br>")
-            st.markdown(f'<div class="health-plan-box">{formatted_plan}</div>', unsafe_allow_html=True)
-        else:
-            st.info("Click the button above to generate your personalised health plan.")
-    else:
-        st.info("Enter Groq API key in sidebar to get your AI-powered health plan.")
+    ca,cb=st.columns(2); entries=list(range(1,len(df)+1))
+    with ca:
+        st.subheader("Sleep Trend")
+        fig1,ax1=plt.subplots(figsize=(5,3)); fig1.patch.set_facecolor("#0a0f1e"); ax1.set_facecolor("#0d1528")
+        ax1.plot(entries,df["sleep"],marker="o",color="#4C9BE8",linewidth=2.5)
+        ax1.axhline(result["baseline"]["avg_sleep"],color="#4C9BE8",linestyle="--",alpha=0.4,linewidth=1)
+        ax1.set_ylim(0,13); ax1.tick_params(colors="#7a92b5")
+        for sp in ax1.spines.values(): sp.set_edgecolor("#1e2d4a")
+        plt.tight_layout(); st.pyplot(fig1); plt.close(fig1)
+    with cb:
+        st.subheader("Mood Trend")
+        fig2,ax2=plt.subplots(figsize=(5,3)); fig2.patch.set_facecolor("#0a0f1e"); ax2.set_facecolor("#0d1528")
+        ax2.plot(entries,df["mood"],marker="s",color="#F4A261",linewidth=2.5)
+        ax2.axhline(result["baseline"]["avg_mood"],color="#F4A261",linestyle="--",alpha=0.4,linewidth=1)
+        ax2.set_ylim(0,6); ax2.tick_params(colors="#7a92b5")
+        for sp in ax2.spines.values(): sp.set_edgecolor("#1e2d4a")
+        plt.tight_layout(); st.pyplot(fig2); plt.close(fig2)
+    all_syms=[s for e in data for s in e.get("symptoms",[])]
+    if all_syms:
+        st.markdown("---"); st.subheader("Symptom Frequency")
+        sym_counts=pd.Series(all_syms).value_counts()
+        fig3,ax3=plt.subplots(figsize=(7,3)); fig3.patch.set_facecolor("#0a0f1e"); ax3.set_facecolor("#0d1528")
+        colors3=["#e74c3c" if c=="Fever" else "#e67e22" if c=="Fatigue" else "#3498db" for c in sym_counts.index]
+        ax3.bar(sym_counts.index,sym_counts.values,color=colors3,width=0.5)
+        ax3.tick_params(colors="#7a92b5",labelsize=9)
+        for sp in ax3.spines.values(): sp.set_edgecolor("#1e2d4a")
+        plt.tight_layout(); st.pyplot(fig3); plt.close(fig3)
+    if result["alert"]:
+        ae={"risk_score":result["risk_score"],"message":"High Risk Detected","date":datetime.now().strftime("%Y-%m-%d %H:%M")}
+        if not st.session_state.alerts or st.session_state.alerts[-1].get("date","")[:10]!=ae["date"][:10]:
+            st.session_state.alerts.append(ae)
+        st.error("HIGH RISK DETECTED! Go to Doctor Panel.")
+        if st.session_state.caregiver_email:
+            key=f"{result['risk_score']}-{datetime.now().strftime('%Y-%m-%d')}"
+            if key not in st.session_state.caregiver_notified:
+                st.session_state.caregiver_notified.append(key)
+                st.warning(f"Caregiver alert simulated to: {st.session_state.caregiver_email}")
+    st.markdown("---"); st.subheader("Export Report")
+    report=generate_report(data,result)
+    st.code(report,language=None)
+    st.download_button("Download Report (.txt)",data=report.encode("ascii",errors="replace"),
+        file_name=f"MediScan_{datetime.now().strftime('%Y%m%d')}.txt",mime="text/plain")
 
 # ══════════════════════════════════════
 # PAGE: RISK HEATMAP
